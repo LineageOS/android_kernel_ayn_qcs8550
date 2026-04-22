@@ -471,6 +471,8 @@ static void lt8912_bridge_hpd_cb(void *data, enum drm_connector_status status)
 {
 	struct lt8912 *lt = data;
 
+	drm_bridge_hpd_notify(&lt->bridge, status);
+
 	if (lt->bridge.dev)
 		drm_helper_hpd_irq_event(lt->bridge.dev);
 }
@@ -481,8 +483,7 @@ static int lt8912_bridge_connector_init(struct drm_bridge *bridge)
 	struct lt8912 *lt = bridge_to_lt8912(bridge);
 	struct drm_connector *connector = &lt->connector;
 
-	if (lt->hdmi_port->ops & DRM_BRIDGE_OP_HPD) {
-		drm_bridge_hpd_enable(lt->hdmi_port, lt8912_bridge_hpd_cb, lt);
+	if (lt->hdmi_port->ops & DRM_BRIDGE_OP_DETECT) {
 		connector->polled = DRM_CONNECTOR_POLL_HPD;
 	} else {
 		connector->polled = DRM_CONNECTOR_POLL_CONNECT |
@@ -550,8 +551,7 @@ static void lt8912_bridge_detach(struct drm_bridge *bridge)
 
 	lt8912_hard_power_off(lt);
 
-	if (lt->connector.dev && lt->hdmi_port->ops & DRM_BRIDGE_OP_HPD)
-		drm_bridge_hpd_disable(lt->hdmi_port);
+	drm_bridge_hpd_disable(lt->hdmi_port);
 }
 
 static enum drm_mode_status
@@ -751,8 +751,11 @@ static int lt8912_probe(struct i2c_client *client,
 
 	lt->bridge.funcs = &lt8912_bridge_funcs;
 	lt->bridge.of_node = dev->of_node;
-	lt->bridge.ops = (DRM_BRIDGE_OP_EDID |
-			  DRM_BRIDGE_OP_DETECT);
+	lt->bridge.ops = DRM_BRIDGE_OP_EDID |  DRM_BRIDGE_OP_DETECT;
+	if (lt->hdmi_port->ops & DRM_BRIDGE_OP_HPD) {
+		lt->bridge.ops |= DRM_BRIDGE_OP_HPD;
+		drm_bridge_hpd_enable(lt->hdmi_port, lt8912_bridge_hpd_cb, lt);
+	}
 
 	drm_bridge_add(&lt->bridge);
 
