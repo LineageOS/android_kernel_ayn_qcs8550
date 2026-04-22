@@ -8,6 +8,7 @@
 #include <linux/gpio/consumer.h>
 #include <linux/i2c.h>
 #include <linux/regmap.h>
+#include <linux/hdmi.h>
 
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_atomic_helper.h>
@@ -22,7 +23,10 @@
 #define I2C_CEC_DSI 1
 #define I2C_ADDR_CEC_DSI 0x49
 
-#define I2C_MAX_IDX 2
+#define I2C_AV 2
+#define I2C_ADDR_AV 0x4A
+
+#define I2C_MAX_IDX 3
 
 struct lt8912 {
 	struct device *dev;
@@ -40,6 +44,7 @@ struct lt8912 {
 	struct gpio_desc *gp_reset;
 
 	struct videomode mode;
+	struct hdmi_avi_infoframe avi_frame;
 
 	struct regulator_bulk_data supplies[2];
 
@@ -51,37 +56,33 @@ static int lt8912_write_init_config(struct lt8912 *lt)
 {
 	const struct reg_sequence seq[] = {
 		/* Digital clock en*/
-		{0x08, 0xff},
-		{0x09, 0xff},
-		{0x0a, 0xff},
-		{0x0b, 0x7c},
-		{0x0c, 0xff},
-		{0x42, 0x04},
+		{ 0x08, 0xff },
+		{ 0x09, 0xff },
+		{ 0x0a, 0xff },
+		{ 0x0b, 0x7c },
+		{ 0x0c, 0xff },
 
 		/*Tx Analog*/
-		{0x31, 0xb1},
-		{0x32, 0xb1},
-		{0x33, 0x0e},
-		{0x37, 0x00},
-		{0x38, 0x22},
-		{0x60, 0x82},
+		{ 0x31, 0xa1 },
+		{ 0x32, 0xa1 },
+		{ 0x33, 0x03 }, // 0x03 Open HDMI Tx 0x00 Close HDMI Tx
+		{ 0x37, 0x00 },
+		{ 0x38, 0x22 },
+		{ 0x60, 0x82 },
 
 		/*Cbus Analog*/
-		{0x39, 0x45},
-		{0x3a, 0x00},
-		{0x3b, 0x00},
+		{ 0x39, 0x45 },
+		{ 0x3b, 0x00 },
 
 		/*HDMI Pll Analog*/
-		{0x44, 0x31},
-		{0x55, 0x44},
-		{0x57, 0x01},
-		{0x5a, 0x02},
+		{ 0x44, 0x31 }, // Close LVDS ouput
+		{ 0x55, 0x44 },
+		{ 0x57, 0x01 },
+		{ 0x5a, 0x02 },
 
 		/*MIPI Analog*/
-		{0x3e, 0xd6},
-		{0x3f, 0xd4},
-		{0x41, 0x3c},
-		{0xB2, 0x00},
+		{ 0x3e, 0xc6 },
+		{ 0x41, 0x7c },
 	};
 
 	return regmap_multi_reg_write(lt->regmap[I2C_MAIN], seq, ARRAY_SIZE(seq));
@@ -90,11 +91,12 @@ static int lt8912_write_init_config(struct lt8912 *lt)
 static int lt8912_write_mipi_basic_config(struct lt8912 *lt)
 {
 	const struct reg_sequence seq[] = {
-		{0x12, 0x04},
-		{0x14, 0x00},
-		{0x15, 0x00},
-		{0x1a, 0x03},
-		{0x1b, 0x03},
+		{ 0x12, 0x04 },
+		{ 0x13, 0x00 },
+		{ 0x14, 0x00 },
+		{ 0x15, 0x06 },
+		{ 0x1a, 0x03 },
+		{ 0x1b, 0x03 },
 	};
 
 	return regmap_multi_reg_write(lt->regmap[I2C_CEC_DSI], seq, ARRAY_SIZE(seq));
@@ -103,51 +105,51 @@ static int lt8912_write_mipi_basic_config(struct lt8912 *lt)
 static int lt8912_write_dds_config(struct lt8912 *lt)
 {
 	const struct reg_sequence seq[] = {
-		{0x4e, 0xff},
-		{0x4f, 0x56},
-		{0x50, 0x69},
-		{0x51, 0x80},
-		{0x1f, 0x5e},
-		{0x20, 0x01},
-		{0x21, 0x2c},
-		{0x22, 0x01},
-		{0x23, 0xfa},
-		{0x24, 0x00},
-		{0x25, 0xc8},
-		{0x26, 0x00},
-		{0x27, 0x5e},
-		{0x28, 0x01},
-		{0x29, 0x2c},
-		{0x2a, 0x01},
-		{0x2b, 0xfa},
-		{0x2c, 0x00},
-		{0x2d, 0xc8},
-		{0x2e, 0x00},
-		{0x42, 0x64},
-		{0x43, 0x00},
-		{0x44, 0x04},
-		{0x45, 0x00},
-		{0x46, 0x59},
-		{0x47, 0x00},
-		{0x48, 0xf2},
-		{0x49, 0x06},
-		{0x4a, 0x00},
-		{0x4b, 0x72},
-		{0x4c, 0x45},
-		{0x4d, 0x00},
-		{0x52, 0x08},
-		{0x53, 0x00},
-		{0x54, 0xb2},
-		{0x55, 0x00},
-		{0x56, 0xe4},
-		{0x57, 0x0d},
-		{0x58, 0x00},
-		{0x59, 0xe4},
-		{0x5a, 0x8a},
-		{0x5b, 0x00},
-		{0x5c, 0x34},
-		{0x1e, 0x4f},
-		{0x51, 0x00},
+		{ 0x4e, 0xdb },
+		{ 0x4f, 0x97 },
+		{ 0x50, 0x69 },
+		{ 0x51, 0x80 },
+		{ 0x1f, 0x5e },
+		{ 0x20, 0x01 },
+		{ 0x21, 0x2c },
+		{ 0x22, 0x01 },
+		{ 0x23, 0xfa },
+		{ 0x24, 0x00 },
+		{ 0x25, 0xc8 },
+		{ 0x26, 0x00 },
+		{ 0x27, 0x5e },
+		{ 0x28, 0x01 },
+		{ 0x29, 0x2c },
+		{ 0x2a, 0x01 },
+		{ 0x2b, 0xfa },
+		{ 0x2c, 0x00 },
+		{ 0x2d, 0xc8 },
+		{ 0x2e, 0x00 },
+		{ 0x42, 0x64 },
+		{ 0x43, 0x00 },
+		{ 0x44, 0x04 },
+		{ 0x45, 0x00 },
+		{ 0x46, 0x59 },
+		{ 0x47, 0x00 },
+		{ 0x48, 0xf2 },
+		{ 0x49, 0x06 },
+		{ 0x4a, 0x00 },
+		{ 0x4b, 0x72 },
+		{ 0x4c, 0x45 },
+		{ 0x4d, 0x00 },
+		{ 0x52, 0x08 },
+		{ 0x53, 0x00 },
+		{ 0x54, 0xb2 },
+		{ 0x55, 0x00 },
+		{ 0x56, 0xe4 },
+		{ 0x57, 0x0d },
+		{ 0x58, 0x00 },
+		{ 0x59, 0xe4 },
+		{ 0x5a, 0x8a },
+		{ 0x5b, 0x00 },
+		{ 0x5c, 0x34 },
+		{ 0x1e, 0x4f },
+		{ 0x51, 0x00 },
 	};
 
 	return regmap_multi_reg_write(lt->regmap[I2C_CEC_DSI], seq, ARRAY_SIZE(seq));
@@ -162,6 +164,54 @@ static int lt8912_write_rxlogicres_config(struct lt8912 *lt)
 	ret |= regmap_write(lt->regmap[I2C_MAIN], 0x03, 0xff);
 
 	return ret;
+};
+
+static u8 lt8912_convert_colorspace(enum hdmi_colorspace colorspace)
+{
+	switch (colorspace) {
+	case HDMI_COLORSPACE_RGB:
+		return 0x10;
+	case HDMI_COLORSPACE_YUV422:
+		return 0x30;
+	case HDMI_COLORSPACE_YUV444:
+		return 0x70;
+	default:
+		return 0;
+	}
+}
+
+static u8 lt8912_convert_picture_aspect(enum hdmi_picture_aspect picture_aspect)
+{
+	switch (picture_aspect) {
+	case HDMI_PICTURE_ASPECT_4_3:
+		return 0x19;
+	case HDMI_PICTURE_ASPECT_16_9:
+		return 0x2A;
+	default:
+		return 0;
+	}
+}
+
+static int lt8912_write_avi_packet(struct lt8912 *lt)
+{
+	u8 colorspace = lt8912_convert_colorspace(lt->avi_frame.colorspace);
+	u8 aspect_ratio =
+		lt8912_convert_picture_aspect(lt->avi_frame.picture_aspect);
+	u8 vic = lt->avi_frame.video_code;
+	u8 checksum = 0x6f - colorspace - aspect_ratio - vic;
+
+	const struct reg_sequence seq[] = {
+		{ 0x3e, 0x0a },
+		{ 0x43, checksum }, // checksum (0x6f - [0x44] - [0x45] - [0x47])
+		{ 0x44, colorspace },
+		{ 0x45, aspect_ratio }, // 0x19: 4:3, 0x2A: 16:9
+		{ 0x47, vic }, // HDMI VIC
+	};
+
+	regmap_write(lt->regmap[I2C_MAIN], 0xb2,
+		     lt->connector.display_info.is_hdmi ? BIT(0) : 0);
+
+	return regmap_multi_reg_write(lt->regmap[I2C_AV], seq, ARRAY_SIZE(seq));
 };
 
 static inline struct lt8912 *bridge_to_lt8912(struct drm_bridge *b)
@@ -190,6 +240,7 @@ static int lt8912_init_i2c(struct lt8912 *lt, struct i2c_client *client)
 	struct i2c_board_info info[] = {
 		{ I2C_BOARD_INFO("lt8912p0", I2C_ADDR_MAIN), },
 		{ I2C_BOARD_INFO("lt8912p1", I2C_ADDR_CEC_DSI), },
+		{ I2C_BOARD_INFO("lt8912p2", I2C_ADDR_AV), },
 	};
 
 	if (!lt)
@@ -247,68 +298,47 @@ static void lt8912_hard_power_off(struct lt8912 *lt)
 
 static int lt8912_video_setup(struct lt8912 *lt)
 {
-	u32 hactive, h_total, hpw, hfp, hbp;
-	u32 vactive, v_total, vpw, vfp, vbp;
-	u8 settle = 0x08;
-	int ret, hsync_activehigh, vsync_activehigh;
+	u32 hactive = lt->mode.hactive;
+	u32 hfp = lt->mode.hfront_porch;
+	u32 hpw = lt->mode.hsync_len;
+	u32 hbp = lt->mode.hback_porch;
+	u32 h_total = hactive + hfp + hpw + hbp;
 
-	if (!lt)
-		return -EINVAL;
+	u32 vactive = lt->mode.vactive;
+	u32 vfp = lt->mode.vfront_porch;
+	u32 vpw = lt->mode.vsync_len;
+	u32 vbp = lt->mode.vback_porch;
+	u32 v_total = vactive + vfp + vpw + vbp;
 
-	hactive = lt->mode.hactive;
-	hfp = lt->mode.hfront_porch;
-	hpw = lt->mode.hsync_len;
-	hbp = lt->mode.hback_porch;
-	h_total = hactive + hfp + hpw + hbp;
-	hsync_activehigh = lt->mode.flags & DISPLAY_FLAGS_HSYNC_HIGH;
+	u8 sync = (lt->mode.flags & DISPLAY_FLAGS_HSYNC_HIGH ? BIT(0) : 0) |
+		  (lt->mode.flags & DISPLAY_FLAGS_VSYNC_HIGH ? BIT(1) : 0);
 
-	vactive = lt->mode.vactive;
-	vfp = lt->mode.vfront_porch;
-	vpw = lt->mode.vsync_len;
-	vbp = lt->mode.vback_porch;
-	v_total = vactive + vfp + vpw + vbp;
-	vsync_activehigh = lt->mode.flags & DISPLAY_FLAGS_VSYNC_HIGH;
+	u8 settle = vactive <= 600 ? 0x04 : (vactive != 1080 ? 0x08 : 0x0a);
 
-	if (vactive <= 600)
-		settle = 0x04;
-	else if (vactive == 1080)
-		settle = 0x0a;
+	const struct reg_sequence seq[] = {
+		{ 0x10, 0x00 },
+		{ 0x11, settle },
+		{ 0x18, hpw },
+		{ 0x19, vpw },
+		{ 0x1c, hactive },
+		{ 0x1d, hactive >> 8 },
+		{ 0x2f, 0x0c },
+		{ 0x34, h_total },
+		{ 0x35, h_total >> 8 },
+		{ 0x36, v_total },
+		{ 0x37, v_total >> 8 },
+		{ 0x38, vbp },
+		{ 0x39, vbp >> 8 },
+		{ 0x3a, vfp },
+		{ 0x3b, vfp >> 8 },
+		{ 0x3c, hbp },
+		{ 0x3d, hbp >> 8 },
+		{ 0x3e, hfp },
+		{ 0x3f, hfp >> 8 },
+		{ 0xab, sync },
+	};
 
-	ret = regmap_write(lt->regmap[I2C_CEC_DSI], 0x10, 0x01);
-	ret |= regmap_write(lt->regmap[I2C_CEC_DSI], 0x11, settle);
-	ret |= regmap_write(lt->regmap[I2C_CEC_DSI], 0x18, hpw);
-	ret |= regmap_write(lt->regmap[I2C_CEC_DSI], 0x19, vpw);
-	ret |= regmap_write(lt->regmap[I2C_CEC_DSI], 0x1c, hactive & 0xff);
-	ret |= regmap_write(lt->regmap[I2C_CEC_DSI], 0x1d, hactive >> 8);
-
-	ret |= regmap_write(lt->regmap[I2C_CEC_DSI], 0x2f, 0x0c);
-
-	ret |= regmap_write(lt->regmap[I2C_CEC_DSI], 0x34, h_total & 0xff);
-	ret |= regmap_write(lt->regmap[I2C_CEC_DSI], 0x35, h_total >> 8);
-
-	ret |= regmap_write(lt->regmap[I2C_CEC_DSI], 0x36, v_total & 0xff);
-	ret |= regmap_write(lt->regmap[I2C_CEC_DSI], 0x37, v_total >> 8);
-
-	ret |= regmap_write(lt->regmap[I2C_CEC_DSI], 0x38, vbp & 0xff);
-	ret |= regmap_write(lt->regmap[I2C_CEC_DSI], 0x39, vbp >> 8);
-
-	ret |= regmap_write(lt->regmap[I2C_CEC_DSI], 0x3a, vfp & 0xff);
-	ret |= regmap_write(lt->regmap[I2C_CEC_DSI], 0x3b, vfp >> 8);
-
-	ret |= regmap_write(lt->regmap[I2C_CEC_DSI], 0x3c, hbp & 0xff);
-	ret |= regmap_write(lt->regmap[I2C_CEC_DSI], 0x3d, hbp >> 8);
-
-	ret |= regmap_write(lt->regmap[I2C_CEC_DSI], 0x3e, hfp & 0xff);
-	ret |= regmap_write(lt->regmap[I2C_CEC_DSI], 0x3f, hfp >> 8);
-
-	ret |= regmap_update_bits(lt->regmap[I2C_MAIN], 0xab, BIT(0),
-				  vsync_activehigh ? BIT(0) : 0);
-	ret |= regmap_update_bits(lt->regmap[I2C_MAIN], 0xab, BIT(1),
-				  hsync_activehigh ? BIT(1) : 0);
-	ret |= regmap_update_bits(lt->regmap[I2C_MAIN], 0xb2, BIT(0),
-				  lt->connector.display_info.is_hdmi ? BIT(0) : 0);
-
-	return ret;
+	return regmap_multi_reg_write(lt->regmap[I2C_CEC_DSI], seq, ARRAY_SIZE(seq));
 }
 
 static int lt8912_soft_power_on(struct lt8912 *lt)
@@ -331,17 +361,29 @@ static int lt8912_video_on(struct lt8912 *lt)
 {
 	int ret;
 
-	ret = lt8912_video_setup(lt);
-	if (ret < 0)
+	ret = lt8912_write_avi_packet(lt);
+	if (ret < 0) {
+		dev_err(lt->dev, "%s: lt8912_write_avi_packet failed\n", __func__);
 		goto end;
+	}
+
+	ret = lt8912_video_setup(lt);
+	if (ret < 0) {
+		dev_err(lt->dev, "%s: lt8912_video_setup failed\n", __func__);
+		goto end;
+	}
 
 	ret = lt8912_write_dds_config(lt);
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err(lt->dev, "%s: lt8912_write_dds_config failed\n", __func__);
 		goto end;
+	}
 
 	ret = lt8912_write_rxlogicres_config(lt);
-	if (ret < 0)
+	if (ret < 0) {
+		dev_err(lt->dev, "%s: lt8912_write_rxlogicres_config failed\n", __func__);
 		goto end;
+	}
 
 end:
 	return ret;
@@ -418,6 +460,9 @@ static void lt8912_bridge_mode_set(struct drm_bridge *bridge,
 	struct lt8912 *lt = bridge_to_lt8912(bridge);
 
 	drm_display_mode_to_videomode(adj, &lt->mode);
+
+	drm_hdmi_avi_infoframe_from_display_mode(&lt->avi_frame, &lt->connector,
+						 adj);
 }
 
 static void lt8912_bridge_enable(struct drm_bridge *bridge)
@@ -527,16 +572,22 @@ static int lt8912_bridge_attach(struct drm_bridge *bridge,
 	}
 
 	ret = lt8912_hard_power_on(lt);
-	if (ret)
+	if (ret) {
+		dev_err(lt->dev, "%s: lt8912_hard_power_on failed\n", __func__);
 		return ret;
+	}
 
 	ret = lt8912_soft_power_on(lt);
-	if (ret)
+	if (ret) {
+		dev_err(lt->dev, "%s: lt8912_soft_power_on failed\n", __func__);
 		goto error;
+	}
 
 	ret = lt8912_attach_dsi(lt);
-	if (ret)
+	if (ret) {
+		dev_err(lt->dev, "%s: lt8912_attach_dsi failed\n", __func__);
 		goto error;
+	}
 
 	return 0;
 
@@ -740,12 +791,16 @@ static int lt8912_probe(struct i2c_client *client,
 	lt->i2c_client[0] = client;
 
 	ret = lt8912_parse_dt(lt);
-	if (ret)
+	if (ret) {
+		dev_err(lt->dev, "%s: lt8912_parse_dt failed\n", __func__);
 		goto err_dt_parse;
+	}
 
 	ret = lt8912_init_i2c(lt, client);
-	if (ret)
+	if (ret) {
+		dev_err(lt->dev, "%s: lt8912_init_i2c failed\n", __func__);
 		goto err_i2c;
+	}
 
 	i2c_set_clientdata(client, lt);
 
