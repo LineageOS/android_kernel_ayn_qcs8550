@@ -164,32 +164,6 @@ static int lt8912_write_rxlogicres_config(struct lt8912 *lt)
 	return ret;
 };
 
-static int lt8912_write_lvds_config(struct lt8912 *lt)
-{
-	const struct reg_sequence seq[] = {
-		{0x44, 0x30},
-		{0x51, 0x05},
-		{0x50, 0x24},
-		{0x51, 0x2d},
-		{0x52, 0x04},
-		{0x69, 0x0e},
-		{0x69, 0x8e},
-		{0x6a, 0x00},
-		{0x6c, 0xb8},
-		{0x6b, 0x51},
-		{0x04, 0xfb},
-		{0x04, 0xff},
-		{0x7f, 0x00},
-		{0xa8, 0x13},
-		{0x02, 0xf7},
-		{0x02, 0xff},
-		{0x03, 0xcf},
-		{0x03, 0xff},
-	};
-
-	return regmap_multi_reg_write(lt->regmap[I2C_MAIN], seq, ARRAY_SIZE(seq));
-};
-
 static inline struct lt8912 *bridge_to_lt8912(struct drm_bridge *b)
 {
 	return container_of(b, struct lt8912, bridge);
@@ -366,10 +340,6 @@ static int lt8912_video_on(struct lt8912 *lt)
 		goto end;
 
 	ret = lt8912_write_rxlogicres_config(lt);
-	if (ret < 0)
-		goto end;
-
-	ret = lt8912_write_lvds_config(lt);
 	if (ret < 0)
 		goto end;
 
