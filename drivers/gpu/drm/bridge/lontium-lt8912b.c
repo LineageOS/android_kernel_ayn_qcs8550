@@ -16,6 +16,7 @@
 #include <drm/drm_of.h>
 
 #include <video/videomode.h>
+#include <sound/hdmi-codec.h>
 
 #define I2C_MAIN 0
 #define I2C_ADDR_MAIN 0x48
@@ -50,6 +51,8 @@ struct lt8912 {
 
 	u8 data_lanes;
 	bool is_power_on;
+
+	struct platform_device *audio_pdev;
 };
 
 static int lt8912_write_init_config(struct lt8912 *lt)
@@ -500,8 +503,8 @@ static int lt8912_attach_dsi(struct lt8912 *lt)
 	dsi->format = MIPI_DSI_FMT_RGB888;
 
 	dsi->mode_flags = MIPI_DSI_MODE_VIDEO |
-			  MIPI_DSI_MODE_LPM |
-			  MIPI_DSI_MODE_NO_EOT_PACKET;
+			  MIPI_DSI_MODE_VIDEO_SYNC_PULSE |
+			  MIPI_DSI_MODE_VIDEO_HSE;
 
 	ret = devm_mipi_dsi_attach(dev, dsi);
 	if (ret < 0) {
@@ -776,6 +779,116 @@ static int lt8912_put_dt(struct lt8912 *lt)
 	return 0;
 }
 
+static u8 lt8912_convert_sample_rate(int sample_rate)
+{
+	switch (sample_rate) {
+	case 32000: return 0x30;
+	case 44100: return 0x00;
+	case 48000: return 0x20;
+	case 88200: return 0x80;
+	case 96000: return 0xa0;
+	case 176000: return 0xc0;
+	case 196000: return 0xe0;
+	default: return 0;
+	}
+}
+
+static int lt8912_hdmi_hw_params(struct device *dev, void *data,
+				 struct hdmi_codec_daifmt *fmt,
+				 struct hdmi_codec_params *hparms)
+{
+	struct lt8912 *lt = data;
+	const struct reg_sequence seq[] = {
+		{ 0x06, 0x08 },
+		{ 0x0f, lt8912_convert_sample_rate(hparms->sample_rate) }, // sample rate
+		{ 0x34, hparms->sample_width == 32 ? 0xd2 :  0xe2},
+		{ 0x3c, 0x41 }, // null packet enable
+	};
+
+	if (!lt->connector.display_info.is_hdmi)
+		return -EINVAL;
+
+	if (hparms->sample_rate != 32000 && hparms->sample_rate != 44100 &&
+	    hparms->sample_rate != 44100 && hparms->sample_rate != 48000 &&
+	    hparms->sample_rate != 88200 && hparms->sample_rate != 96000 &&
+	    hparms->sample_rate != 176000 && hparms->sample_rate != 196000)
+		return -EINVAL;
+
+	if (hparms->sample_width != 16 && hparms->sample_width != 32)
+		return -EINVAL;
+
+	return regmap_multi_reg_write(lt->regmap[I2C_AV], seq, ARRAY_SIZE(seq));
+}
+
+static int lt8912_audio_startup(struct device *dev, void *data)
+{
+	struct lt8912 *lt = data;
+
+	if (!lt->connector.display_info.is_hdmi)
+		return -EINVAL;
+
+	return regmap_write(lt->regmap[I2C_AV], 0x07, 0xf0); // Unmute
+}
+
+static void lt8912_audio_shutdown(struct device *dev, void *data)
+{
+	struct lt8912 *lt = data;
+
+	regmap_write(lt->regmap[I2C_AV], 0x07, 0x00); // Mute
+}
+
+static int lt8912_hdmi_i2s_get_dai_id(struct snd_soc_component *component,
+				      struct device_node *endpoint)
+{
+	struct of_endpoint of_ep;
+	int ret;
+
+	ret = of_graph_parse_endpoint(endpoint, &of_ep);
+	if (ret < 0)
+		return ret;
+
+	/*
+	 * HDMI sound should be located as reg = <1>
+	 * Then, it is sound port 0
+	 */
+	if (of_ep.port != 1)
+		return -EINVAL;
+
+	return 0;
+}
+
+static const struct hdmi_codec_ops lt8912_codec_ops = {
+	.hw_params	= lt8912_hdmi_hw_params,
+	.audio_shutdown = lt8912_audio_shutdown,
+	.audio_startup	= lt8912_audio_startup,
+	.get_dai_id	= lt8912_hdmi_i2s_get_dai_id,
+};
+
+static struct hdmi_codec_pdata codec_data = {
+	.ops = &lt8912_codec_ops,
+	.max_i2s_channels = 2,
+	.i2s = 1,
+};
+
+static int lt8912_audio_init(struct device *dev, struct lt8912 *lt)
+{
+	codec_data.data = lt;
+	lt->audio_pdev =
+		platform_device_register_data(dev, HDMI_CODEC_DRV_NAME,
+					      PLATFORM_DEVID_AUTO, &codec_data,
+					      sizeof(codec_data));
+
+	return PTR_ERR_OR_ZERO(lt->audio_pdev);
+}
+
+static void lt8912_audio_exit(struct lt8912 *lt)
+{
+	if (lt->audio_pdev) {
+		platform_device_unregister(lt->audio_pdev);
+		lt->audio_pdev = NULL;
+	}
+}
+
 static int lt8912_probe(struct i2c_client *client,
 			const struct i2c_device_id *id)
 {
@@ -814,7 +927,7 @@ static int lt8912_probe(struct i2c_client *client,
 
 	drm_bridge_add(&lt->bridge);
 
-	return 0;
+	return lt8912_audio_init(dev, lt);
 
 err_i2c:
 	lt8912_put_dt(lt);
@@ -826,6 +939,7 @@ static int lt8912_remove(struct i2c_client *client)
 {
 	struct lt8912 *lt = i2c_get_clientdata(client);
 
+	lt8912_audio_exit(lt);
 	drm_bridge_remove(&lt->bridge);
 	lt8912_free_i2c(lt);
 	lt8912_put_dt(lt);
