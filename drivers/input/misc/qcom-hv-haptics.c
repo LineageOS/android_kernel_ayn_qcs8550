@@ -1670,6 +1670,9 @@ static int haptics_wait_brake_complete(struct haptics_chip *chip)
 	if (chip->hw_type != HAP525_HV)
 		return 0;
 
+	if (chip->config.is_erm && (!play->brake || play->brake->disabled))
+		return 0;
+
 	t_lra_us = (chip->config.cl_t_lra_us) ?
 		chip->config.cl_t_lra_us : chip->config.t_lra_us;
 
@@ -4269,7 +4272,7 @@ static int haptics_parse_effect_brake_data(struct haptics_chip *chip,
 		}
 	}
 
-	effect->brake->disabled =
+	effect->brake->disabled |=
 		of_property_read_bool(node, "qcom,wf-brake-disable");
 	tmp = of_property_count_u8_elems(node, "qcom,wf-brake-pattern");
 	if (tmp > BRAKE_SAMPLE_COUNT) {
