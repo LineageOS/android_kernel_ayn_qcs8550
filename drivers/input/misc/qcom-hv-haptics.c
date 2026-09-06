@@ -4348,7 +4348,9 @@ static int haptics_parse_per_effect_dt(struct haptics_chip *chip,
 		return rc;
 	}
 
-	if (!config->is_erm)
+	if (config->is_erm)
+		effect->auto_res_disable = true;
+	else
 		effect->auto_res_disable = of_property_read_bool(node,
 				"qcom,wf-auto-res-disable");
 
