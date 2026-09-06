@@ -2683,13 +2683,13 @@ static int haptics_upload_effect(struct input_dev *dev,
 		amplitude = tmp / 0x7fff;
 		dev_dbg(chip->dev, "upload constant effect, length = %dms, amplitude = %#x\n",
 				length_ms, amplitude);
-		schedule_delayed_work(&chip->stop_work, msecs_to_jiffies(length_ms));
-		haptics_load_constant_effect(chip, amplitude);
+		rc = haptics_load_constant_effect(chip, amplitude);
 		if (rc < 0) {
 			dev_err(chip->dev, "set direct play failed, rc=%d\n",
 					rc);
 			return rc;
 		}
+		schedule_delayed_work(&chip->stop_work, msecs_to_jiffies(length_ms));
 
 		break;
 	case FF_PERIODIC:
